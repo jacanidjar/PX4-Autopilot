@@ -952,8 +952,8 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - {name: "Mission", test: "mavros_posix_tests_missions.test", params: "mission:=MC_mission_box vehicle:=iris"}
-          - {name: "Offboard", test: "mavros_posix_tests_offboard_posctl.test", params: "vehicle:=iris"}
+          - {name: "Mission", test_file: "mavros_posix_test_mission.test", params: "mission:=MC_mission_box vehicle:=iris"}
+          - {name: "Offboard", test_file: "mavros_posix_tests_offboard_posctl.test", params: "vehicle:=iris"}
     container:
       image: px4io/px4-dev-ros-noetic:2021-09-08
     steps:
@@ -977,7 +977,7 @@ jobs:
         shell: bash
         run: |
           . /opt/ros/noetic/setup.bash
-          test/rostest_px4_run.sh ${{ matrix.config.test }} ${{ matrix.config.params }}
+          test/rostest_px4_run.sh ${{ matrix.config.test_file }} ${{ matrix.config.params }}
         timeout-minutes: 30
 
   ros-translation-node:
