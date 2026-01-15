@@ -31,7 +31,7 @@ jobs:
   # PR ONLY: Link Checker
   # ═══════════════════════════════════════════════════════════════════════════════
   link-check:
-    name: Link Check
+    name: "Docs: Link Check"
     if: github.event_name == 'pull_request'
     runs-on: [runs-on,runner=2cpu-linux-x64,image=ubuntu24-full-x64,"run-id=${{ github.run_id }}",spot=false,extras=s3-cache]
     steps:
@@ -83,7 +83,7 @@ jobs:
   # PUSH ONLY: Metadata Regeneration + Auto-Commit
   # ═══════════════════════════════════════════════════════════════════════════════
   metadata-regen:
-    name: Regenerate Metadata
+    name: "Docs: Regenerate Metadata"
     if: github.event_name == 'push'
     runs-on: [runs-on,runner=4cpu-linux-x64,image=ubuntu24-full-x64,"run-id=${{ github.run_id }}",spot=false,extras=s3-cache]
     container:
@@ -98,13 +98,13 @@ jobs:
           token: ${{ secrets.PX4BUILDBOT_PAT }}
           fetch-depth: 0
 
-      - name: Git config
+      - name: Configure git
         run: |
           git config --system --add safe.directory '*'
           git config user.name "PX4 BuildBot"
           git config user.email "px4buildbot@px4.io"
 
-      - name: Cache Restore
+      - name: Cache Restore - ccache
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
@@ -113,7 +113,7 @@ jobs:
             docs-metadata-ccache-${{ github.base_ref || github.ref_name }}-
             docs-metadata-ccache-
 
-      - name: Configure ccache
+      - name: Cache Configure - ccache
         run: |
           mkdir -p ~/.ccache
           echo "base_dir = ${GITHUB_WORKSPACE}" > ~/.ccache/ccache.conf
@@ -143,17 +143,17 @@ jobs:
       - name: Sync all metadata
         run: Tools/ci/metadata_sync.sh --sync all
 
-      - name: Show ccache stats
+      - name: Cache Stats - ccache
         run: ccache -s
 
-      - name: Cache Save
+      - name: Cache Save - ccache
         uses: actions/cache/save@v4
         if: always()
         with:
           path: ~/.ccache
           key: docs-metadata-ccache-${{ github.sha }}
 
-      - name: Commit and push if changes
+      - name: Commit and push changes
         id: commit
         run: |
           if [[ -n $(git status -s docs/) ]]; then
@@ -169,7 +169,7 @@ jobs:
   # BOTH: VitePress Site Build
   # ═══════════════════════════════════════════════════════════════════════════════
   build-site:
-    name: Build Site
+    name: "Docs: Build Site"
     needs: [link-check, metadata-regen]
     if: always() && (needs.link-check.result == 'success' || needs.link-check.result == 'skipped') && (needs.metadata-regen.result == 'success' || needs.metadata-regen.result == 'skipped')
     runs-on: [runs-on,runner=4cpu-linux-x64,image=ubuntu24-full-x64,"run-id=${{ github.run_id }}",spot=false,extras=s3-cache]
@@ -184,10 +184,12 @@ jobs:
           # For push events, fetch latest (includes auto-commit if any)
           ref: ${{ github.event_name == 'push' && github.ref || github.event.pull_request.head.sha }}
 
-      - id: set-branch
+      - name: Set branch name
+        id: set-branch
         run: echo "branchname=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
 
-      - id: set-version
+      - name: Set release version
+        id: set-version
         run: |
           branch="${{ steps.set-branch.outputs.branchname }}"
           if [[ "$branch" == "main" ]]; then
@@ -201,7 +203,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Restore node_modules cache
+      - name: Cache Restore - node_modules
         uses: actions/cache@v4
         with:
           path: docs/node_modules
@@ -233,33 +235,33 @@ jobs:
   # PUSH ONLY: Deploy to AWS S3
   # ═══════════════════════════════════════════════════════════════════════════════
   deploy-aws:
-    name: Deploy to AWS
+    name: "Docs: Deploy to AWS"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: [build-site]
     runs-on: [runs-on,runner=2cpu-linux-x64,image=ubuntu24-full-x64,"run-id=${{ github.run_id }}",spot=false,extras=s3-cache]
     steps:
       - uses: runs-on/action@v1
 
-      - name: Download artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: px4_docs_build
           path: ~/_book
 
-      - name: Configure AWS from OIDC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
-      - name: Upload HTML (short cache)
+      - name: S3 sync - HTML files
         run: |
           aws s3 sync ~/_book/ s3://px4-docs/${{ needs.build-site.outputs.releaseversion }}/ \
             --delete \
             --exclude "*" --include "*.html" \
             --cache-control "public, max-age=60"
 
-      - name: Upload assets (long cache)
+      - name: S3 sync - assets
         run: |
           aws s3 sync ~/_book/ s3://px4-docs/${{ needs.build-site.outputs.releaseversion }}/ \
             --delete \
@@ -270,7 +272,7 @@ jobs:
   # PUSH ONLY: Upload to Crowdin
   # ═══════════════════════════════════════════════════════════════════════════════
   crowdin-upload:
-    name: Crowdin Upload
+    name: "Docs: Crowdin Upload"
     if: github.event_name == 'push'
     needs: [deploy-aws]
     runs-on: [runs-on,runner=2cpu-linux-x64,image=ubuntu24-full-x64,"run-id=${{ github.run_id }}",spot=false,extras=s3-cache]
